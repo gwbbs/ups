@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>UPS - Universal Piracy Scraper</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="app-container">
+        <!-- Header -->
+        <header class="header">
+            <div class="logo">
+                <i class="fas fa-search"></i>
+                <span>UPS</span>
+            </div>
+            <div class="status-indicator">
+                <span class="status-dot"></span>
+                <span class="status-text">Ready</span>
+            </div>
+        </header>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <!-- Category Selection -->
+            <section class="category-section">
+                <div class="category-tabs">
+                    <button class="category-tab active" data-category="Games">
+                        <i class="fas fa-gamepad"></i>
+                        <span>Games</span>
+                    </button>
+                    <button class="category-tab" data-category="Books">
+                        <i class="fas fa-book"></i>
+                        <span>Books</span>
+                    </button>
+                    <button class="category-tab" data-category="Music">
+                        <i class="fas fa-music"></i>
+                        <span>Music</span>
+                    </button>
+                </div>
+            </section>
+
+            <!-- Search Section -->
+            <section class="search-section">
+                <div class="search-container">
+                    <div class="search-input-wrapper">
+                        <i class="fas fa-search search-icon"></i>
+                        <input type="text" id="search-query" placeholder="Cerca contenuti..." class="search-input">
+                        <button id="search-button" class="search-button">
+                            <span class="button-text">Search</span>
+                            <div class="loading-spinner"></div>
+                        </button>
+                    </div>
+                </div>
+            </section>
+
+            <section class="source-section">
+                <h3>Sources</h3>
+                <div class="source-scroll-container">
+                    <div class="source-tabs" id="source-tabs">
+                        <!-- Sources will be populated dynamically -->
+                    </div>
+                </div>
+            </section>
+
+            <!-- Results Section -->
+            <section class="results-section">
+                <div class="results-header">
+                    <h2>Results</h2>
+                    <div class="results-count">0 results</div>
+                </div>
+                <div class="results-container">
+                    <div class="empty-state">
+                        <i class="fas fa-search"></i>
+                        <p>Select a category and start a research.</p>
+                    </div>
+                    <div class="results-list" id="results-list"></div>
+                </div>
+            </section>
+
+            <!-- Details Panel -->
+            <section class="details-panel" id="details-panel">
+                <div class="details-header">
+                    <h3>Dettagli</h3>
+                    <button class="close-details" id="close-details">
+                        <i class="fas fa-times"></i>
+                    </button>
+                </div>
+                <div class="details-content" id="details-content">
+                    <div class="detail-item">
+                        <label>Titolo:</label>
+                        <span id="detail-title">-</span>
+                    </div>
+                    <div class="detail-item">
+                        <label>Informazioni:</label>
+                        <span id="detail-info">-</span>
+                    </div>
+                    <div class="detail-item">
+                        <label>Link:</label>
+                        <span id="detail-link">-</span>
+                    </div>
+                </div>
+                <div class="details-actions">
+                    <button id="copy-button" class="action-button secondary">
+                        <i class="fas fa-copy"></i>
+                        <span>Copia Link</span>
+                    </button>
+                    <button id="open-button" class="action-button primary">
+                        <i class="fas fa-external-link-alt"></i>
+                        <span>Apri</span>
+                    </button>
+                </div>
+            </section>
+        </main>
+    </div>
+    <script src="scripts/renderers/mainrenderer.js"></script>
+    <script src="scripts/renderers/baserenderer.js"></script>
+    <script src="scripts/renderers/musicrenderer.js"></script>
+    <script src="scripts/renderers/gamesrenderer.js"></script>
+    <script src="scripts/renderers/booksrenderer.js"></script>
+</body>
+</html>

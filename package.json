@@ -1,0 +1,60 @@
+{
+  "name": "ultimate-piracy-scraper",
+  "version": "1.0.0",
+  "description": "Ultimate Piracy Scraper",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "build": "electron-builder",
+    "build-win": "electron-builder --win",
+    "publish": "electron-builder --publish always"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/gwbbs/ups.git"
+  },
+  "build": {
+    "appId": "com.gwbbs.ups",
+    "productName": "Ultimate Piracy Scraper",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "**/*",
+      "!**/node_modules/*/{CHANGELOG.md,README.md}",
+      "sources/**/*"
+    ],
+    "extraResources": [
+      {
+        "from": "media/embedpy",
+        "to": "media/embedpy",
+        "filter": [
+          "**/*"
+        ]
+      },
+      {
+        "from": "sources",
+        "to": "sources",
+        "filter": [
+          "**/*"
+        ]
+      }
+    ],
+    "win": {
+      "target": "nsis",
+      "icon": "media/icon.ico"
+    },
+    "publish": {
+      "provider": "github",
+      "owner": "gwbbs",
+      "repo": "ups"
+    }
+  },
+  "devDependencies": {
+    "electron": "^32.3.3",
+    "electron-builder": "^26.0.12"
+  },
+  "dependencies": {
+    "electron-updater": "^6.6.2"
+  }
+}
