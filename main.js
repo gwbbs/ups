@@ -24,65 +24,50 @@ function getScriptPath(scriptName) {
     : path.join(__dirname, 'sources', scriptName);
 }
 
-// === SISTEMA TRACKING COMMIT ===
+// === SISTEMA CONTROLLO TUTTI I FILE ===
 
-// Percorso per salvare l'ultimo commit SHA
-function getLastCommitFilePath() {
-  return app.isPackaged
-    ? path.join(process.resourcesPath, 'last_commit.txt')
-    : path.join(__dirname, 'last_commit.txt');
+// Funzione per calcolare hash dei file
+function calculateFileHash(filePath) {
+  if (!fs.existsSync(filePath)) return null;
+  const fileContent = fs.readFileSync(filePath);
+  return crypto.createHash('sha256').update(fileContent).digest('hex');
 }
 
-// Legge l'ultimo commit SHA salvato
-function getLastCommitSHA() {
-  const filePath = getLastCommitFilePath();
-  if (fs.existsSync(filePath)) {
-    return fs.readFileSync(filePath, 'utf8').trim();
-  }
-  return null;
-}
-
-// Salva l'ultimo commit SHA
-function saveLastCommitSHA(sha) {
-  const filePath = getLastCommitFilePath();
-  fs.writeFileSync(filePath, sha);
-}
-
-// === SISTEMA AGGIORNAMENTO INCREMENTALE INTELLIGENTE ===
-
-// Ottiene i file modificati tra due commit
-async function getChangedFilesBetweenCommits(repo, branch, oldCommitSHA, newCommitSHA) {
+// Funzione per ottenere ricorsivamente tutti i file da GitHub
+async function getAllFilesFromGitHub(repo, branch, directory = '') {
+  const apiUrl = `https://api.github.com/repos/${repo}/contents/${directory}?ref=${branch}`;
+  
   try {
-    const apiUrl = `https://api.github.com/repos/${repo}/compare/${oldCommitSHA}...${newCommitSHA}`;
-    
     const response = await fetch(apiUrl);
-    const compareData = await response.json();
+    const items = await response.json();
     
-    if (compareData.status === 'identical') {
-      console.log('Nessun cambiamento rilevato');
+    if (!Array.isArray(items)) {
+      console.error('Errore nel recupero file da GitHub:', items.message);
       return [];
     }
     
-    // Estrae i file modificati
-    const changedFiles = compareData.files.map(file => ({
-      filename: file.filename,
-      status: file.status, // 'added', 'modified', 'removed'
-      patch: file.patch
-    }));
+    let allFiles = [];
     
-    console.log(`Trovati ${changedFiles.length} file modificati`);
-    return changedFiles;
+    for (const item of items) {
+      if (item.type === 'file') {
+        allFiles.push(item.path);
+      } else if (item.type === 'dir') {
+        const subFiles = await getAllFilesFromGitHub(repo, branch, item.path);
+        allFiles = allFiles.concat(subFiles);
+      }
+    }
     
+    return allFiles;
   } catch (error) {
-    console.error('Errore nel recupero file modificati:', error);
+    console.error(`Errore nel recupero file da ${directory}:`, error);
     return [];
   }
 }
 
-// Funzione principale di aggiornamento intelligente
-async function checkAndUpdateChangedFiles() {
+// Funzione principale che controlla TUTTI i file
+async function checkAndUpdateAllFiles() {
   try {
-    console.log('Controllo file modificati su GitHub...');
+    console.log('Controllo TUTTI i file su GitHub...');
     
     const repo = 'gwbbs/ups';
     
@@ -97,134 +82,159 @@ async function checkAndUpdateChangedFiles() {
     const repoInfo = await repoResponse.json();
     const branch = repoInfo.default_branch;
     
-    // Ottieni l'ultimo commit SHA del branch
-    const branchUrl = `https://api.github.com/repos/${repo}/branches/${branch}`;
-    const branchResponse = await fetch(branchUrl);
-    const branchData = await branchResponse.json();
-    const latestCommitSHA = branchData.commit.sha;
+    console.log('Branch utilizzata:', branch);
     
-    console.log('Ultimo commit GitHub:', latestCommitSHA.substring(0, 7));
+    // Ottieni TUTTI i file dalla repository
+    console.log('Recupero lista completa file...');
+    const allFiles = await getAllFilesFromGitHub(repo, branch);
     
-    // Leggi l'ultimo commit SHA salvato localmente
-    const lastKnownSHA = getLastCommitSHA();
-    
-    if (!lastKnownSHA) {
-      console.log('Prima esecuzione, salvo commit corrente senza aggiornare file');
-      saveLastCommitSHA(latestCommitSHA);
-      return {
-        success: true,
-        updatedFiles: [],
-        message: 'Prima esecuzione - commit SHA salvato'
-      };
+    if (allFiles.length === 0) {
+      console.log('Nessun file trovato nella repository');
+      return { success: false, error: 'Nessun file trovato' };
     }
     
-    if (lastKnownSHA === latestCommitSHA) {
-      console.log('Nessun nuovo commit, tutto aggiornato');
-      return {
-        success: true,
-        updatedFiles: [],
-        message: 'Nessun nuovo commit rilevato'
-      };
-    }
-    
-    console.log('Nuovo commit rilevato, controllo file modificati...');
-    console.log(`Confronto: ${lastKnownSHA.substring(0, 7)} → ${latestCommitSHA.substring(0, 7)}`);
-    
-    // Ottieni solo i file modificati
-    const changedFiles = await getChangedFilesBetweenCommits(repo, branch, lastKnownSHA, latestCommitSHA);
-    
-    if (changedFiles.length === 0) {
-      console.log('Nessun file da aggiornare');
-      saveLastCommitSHA(latestCommitSHA);
-      return {
-        success: true,
-        updatedFiles: [],
-        message: 'Nessun file modificato'
-      };
-    }
-    
-    let updatedFiles = [];
-    
-    // Processa solo i file modificati
-    for (const file of changedFiles) {
-      const filename = file.filename;
-      
-      // Filtra file non necessari
+    console.log(`Trovati ${allFiles.length} file nella repository`);
+    const relevantFiles = allFiles.filter(file => {
       const excludePatterns = [
         /\.git/,
         /node_modules/,
-        /\.md$/,
-        /package\.json$/,
-        /package-lock\.json$/,
-        /\.exe$/,
-        /\.dll$/,
+        /downloads\//,
         /dist\//,
-        /build\//,
-        /media\/embedpy/,
-        /downloads\//
+        /build\//
       ];
       
-      if (excludePatterns.some(pattern => pattern.test(filename))) {
-        console.log(`Saltato file escluso: ${filename}`);
-        continue;
-      }
-      
+      return !excludePatterns.some(pattern => pattern.test(file));
+    });
+    
+    console.log(`File da controllare: ${relevantFiles.length}`);
+    
+    let updatedFiles = [];
+    let changedFiles = [];
+    
+    // Controlla OGNI SINGOLO FILE
+    for (const file of relevantFiles) {
       const localPath = app.isPackaged 
-        ? path.join(process.resourcesPath, filename)
-        : path.join(__dirname, filename);
+        ? path.join(process.resourcesPath, file)
+        : path.join(__dirname, file);
+      
+      console.log(`Controllo file: ${file}`);
       
       try {
-        if (file.status === 'removed') {
-          // File cancellato
-          if (fs.existsSync(localPath)) {
-            fs.unlinkSync(localPath);
-            console.log(`Rimosso: ${filename}`);
-            updatedFiles.push(filename);
-          }
-        } else {
-          // File aggiunto o modificato
-          const fileUrl = `https://api.github.com/repos/${repo}/contents/${filename}?ref=${latestCommitSHA}`;
-          const fileResponse = await fetch(fileUrl);
-          const fileData = await fileResponse.json();
+        // Scarica il file da GitHub
+        const fileUrl = `https://api.github.com/repos/${repo}/contents/${file}?ref=${branch}`;
+        const fileResponse = await fetch(fileUrl);
+        const fileData = await fileResponse.json();
+        
+        if (fileData.message === 'Not Found') {
+          console.log(`File ${file} non trovato su GitHub`);
+          continue;
+        }
+        
+        if (fileData.content) {
+          const remoteContent = Buffer.from(fileData.content, 'base64').toString('utf8');
+          const remoteHash = crypto.createHash('sha256').update(remoteContent).digest('hex');
           
-          if (fileData.content) {
-            const fileContent = Buffer.from(fileData.content, 'base64').toString('utf8');
-            
-            // Assicurati che la directory esista
-            fs.mkdirSync(path.dirname(localPath), { recursive: true });
-            
-            // Scrivi il file
-            fs.writeFileSync(localPath, fileContent);
-            
-            const status = file.status === 'added' ? 'Aggiunto' : 'Modificato';
-            console.log(`${status}: ${filename}`);
-            updatedFiles.push(filename);
+          // Calcola hash locale
+          const localHash = calculateFileHash(localPath);
+          
+          // Confronta hash
+          if (localHash !== remoteHash) {
+            console.log(`DIFFERENZA RILEVATA: ${file}`);
+            changedFiles.push(file);
           }
         }
+        
       } catch (error) {
-        console.error(`Errore aggiornamento ${filename}:`, error.message);
+        console.error(`Errore controllo ${file}:`, error.message);
       }
     }
     
-    // Salva il nuovo commit SHA
-    saveLastCommitSHA(latestCommitSHA);
+    console.log(`Controllo completato. File modificati: ${changedFiles.length}`);
     
-    // Se sono stati aggiornati dei requirements, reinstalla i moduli
-    if (updatedFiles.some(file => file.includes('requirements.txt'))) {
-      console.log('Requirements.txt aggiornato, reinstallo moduli Python...');
-      await installPythonRequirements();
+    // Se ci sono file modificati, chiedi aggiornamento
+    if (changedFiles.length > 0) {
+      console.log('File modificati trovati:', changedFiles);
+      
+      // Mostra dialog di aggiornamento
+      const result = await dialog.showMessageBox(mainWindow, {
+        type: 'question',
+        title: 'Aggiornamenti Disponibili',
+        message: `Trovati ${changedFiles.length} file modificati. Vuoi aggiornarli?`,
+        detail: `File modificati:\n${changedFiles.join('\n')}`,
+        buttons: ['Aggiorna', 'Annulla'],
+        defaultId: 0
+      });
+      
+      if (result.response === 0) {
+        // Utente ha scelto di aggiornare
+        console.log('Inizio aggiornamento file...');
+        
+        for (const file of changedFiles) {
+          const localPath = app.isPackaged 
+            ? path.join(process.resourcesPath, file)
+            : path.join(__dirname, file);
+          
+          try {
+            const fileUrl = `https://api.github.com/repos/${repo}/contents/${file}?ref=${branch}`;
+            const fileResponse = await fetch(fileUrl);
+            const fileData = await fileResponse.json();
+            
+            if (fileData.content) {
+              const fileContent = Buffer.from(fileData.content, 'base64').toString('utf8');
+              
+              // Crea directory se non esiste
+              fs.mkdirSync(path.dirname(localPath), { recursive: true });
+              
+              // Scrivi il file aggiornato
+              fs.writeFileSync(localPath, fileContent);
+              updatedFiles.push(file);
+              
+              console.log(`Aggiornato: ${file}`);
+            }
+            
+          } catch (error) {
+            console.error(`Errore aggiornamento ${file}:`, error.message);
+          }
+        }
+        
+        // Se requirements.txt è stato aggiornato, reinstalla moduli
+        if (updatedFiles.some(file => file.includes('requirements.txt'))) {
+          console.log('Requirements.txt aggiornato, reinstallo moduli Python...');
+          await installPythonRequirements();
+        }
+        
+        // Mostra risultato
+        dialog.showMessageBox(mainWindow, {
+          type: 'info',
+          title: 'Aggiornamento Completato',
+          message: `Aggiornati ${updatedFiles.length} file con successo!`,
+          detail: `File aggiornati:\n${updatedFiles.join('\n')}`,
+          buttons: ['OK']
+        });
+        
+        return {
+          success: true,
+          updatedFiles: updatedFiles,
+          message: `Aggiornati ${updatedFiles.length} file`
+        };
+      } else {
+        return {
+          success: true,
+          updatedFiles: [],
+          message: 'Aggiornamento annullato dall\'utente'
+        };
+      }
+    } else {
+      console.log('Nessun file modificato');
+      return {
+        success: true,
+        updatedFiles: [],
+        message: 'Tutti i file sono già aggiornati'
+      };
     }
     
-    return {
-      success: true,
-      updatedFiles: updatedFiles,
-      message: updatedFiles.length > 0 
-        ? `Aggiornati ${updatedFiles.length} file dal nuovo commit`
-        : 'Nessun file rilevante modificato'
-    };
-    
   } catch (error) {
-    console.error('Errore controllo commit:', error);
+    console.error('Errore controllo file:', error);
     return {
       success: false,
       error: error.message
@@ -320,9 +330,9 @@ ipcMain.handle('run-python', async (event, scriptName, argsArray = []) => {
   });
 });
 
-// Handler per aggiornamento intelligente
+// Handler per controllo file
 ipcMain.handle('check-file-updates', async () => {
-  return await checkAndUpdateChangedFiles();
+  return await checkAndUpdateAllFiles();
 });
 
 ipcMain.handle('open-external', async (event, url) => {
@@ -369,80 +379,13 @@ function createWindow() {
   }
 }
 
-// Aggiornamenti periodici intelligenti
-function startPeriodicSmartUpdates() {
+// Controllo periodico ogni 5 minuti
+function startPeriodicUpdates() {
   setInterval(async () => {
-    console.log('Controllo periodico commit...');
-    const result = await checkAndUpdateChangedFiles();
-    
-    if (result.success && result.updatedFiles.length > 0) {
-      console.log('File aggiornati automaticamente:', result.updatedFiles);
-      
-      if (mainWindow && !mainWindow.isDestroyed()) {
-        mainWindow.webContents.send('files-updated', {
-          files: result.updatedFiles,
-          message: result.message
-        });
-      }
-    }
-  }, 10 * 60 * 1000); // 10 minuti
+    console.log('Controllo periodico file...');
+    await checkAndUpdateAllFiles();
+  }, 5 * 60 * 1000); // 5 minuti
 }
-
-// === AUTO-UPDATER (per setup completo) ===
-
-autoUpdater.on('checking-for-update', () => {
-  console.log('Controllo aggiornamenti setup...');
-});
-
-autoUpdater.on('update-available', (info) => {
-  console.log('Aggiornamento setup disponibile');
-  dialog.showMessageBox(mainWindow, {
-    type: 'info',
-    title: 'Aggiornamento App Disponibile',
-    message: 'È disponibile una nuova versione dell\'app. Vuoi scaricarla?',
-    buttons: ['Sì', 'No']
-  }).then((result) => {
-    if (result.response === 0) {
-      autoUpdater.downloadUpdate();
-    }
-  });
-});
-
-autoUpdater.on('update-not-available', (info) => {
-  console.log('Nessun aggiornamento setup disponibile');
-});
-
-autoUpdater.on('error', (err) => {
-  console.error('Errore nell\'aggiornamento setup:', err);
-});
-
-autoUpdater.on('download-progress', (progressObj) => {
-  let log_message = "Velocità download: " + progressObj.bytesPerSecond;
-  log_message = log_message + ' - Scaricato ' + progressObj.percent + '%';
-  log_message = log_message + ' (' + progressObj.transferred + "/" + progressObj.total + ')';
-  console.log(log_message);
-});
-
-autoUpdater.on('update-downloaded', async (info) => {
-  console.log('Aggiornamento setup scaricato, setup dipendenze...');
-  
-  const pythonSetupOk = await setupPythonDependencies();
-  
-  if (!pythonSetupOk) {
-    console.warn('Problema nel setup Python post-aggiornamento');
-  }
-  
-  dialog.showMessageBox(mainWindow, {
-    type: 'info',
-    title: 'Aggiornamento Pronto',
-    message: 'Aggiornamento dell\'app scaricato e dipendenze aggiornate. Verrà installato al riavvio.',
-    buttons: ['Riavvia ora', 'Dopo']
-  }).then((result) => {
-    if (result.response === 0) {
-      autoUpdater.quitAndInstall();
-    }
-  });
-});
 
 // === APP LIFECYCLE ===
 
@@ -455,20 +398,16 @@ app.whenReady().then(async () => {
     console.warn('Problema nel setup Python, continuo comunque...');
   }
   
-  // Controlla aggiornamenti intelligenti
-  console.log('Controllo commit modificati...');
-  const updateResult = await checkAndUpdateChangedFiles();
-  
-  if (updateResult.success && updateResult.updatedFiles.length > 0) {
-    console.log('File aggiornati dai nuovi commit:', updateResult.updatedFiles);
-  }
-  
   createWindow();
-  startPeriodicSmartUpdates();
   
-  setTimeout(() => {
-    autoUpdater.checkForUpdatesAndNotify();
-  }, 15000);
+  // Controlla aggiornamenti dopo 3 secondi dall'avvio
+  setTimeout(async () => {
+    console.log('Controllo aggiornamenti iniziale...');
+    await checkAndUpdateAllFiles();
+  }, 3000);
+  
+  // Avvia controllo periodico
+  startPeriodicUpdates();
 });
 
 app.on('window-all-closed', () => {
