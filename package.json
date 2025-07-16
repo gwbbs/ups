@@ -19,6 +19,9 @@
     "directories": {
       "output": "dist"
     },
+    "nsis": {
+      "differentialPackage": true
+    },
     "files": [
       "**/*",
       "!**/node_modules/*/{CHANGELOG.md,README.md}",

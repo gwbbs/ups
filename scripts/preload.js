@@ -12,5 +12,18 @@ contextBridge.exposeInMainWorld('electronAPI', {
   openExternal: (url) => ipcRenderer.invoke('open-external', url),
   writeText: (text) => ipcRenderer.invoke('write-clipboard', text),
   showDialog: (options) => ipcRenderer.invoke('show-dialog', options),
-  showItemInFolder: (path) => ipcRenderer.invoke('show-item-in-folder', path)
+  showItemInFolder: (path) => ipcRenderer.invoke('show-item-in-folder', path),
+  
+  // Nuove funzioni per aggiornamento incrementale
+  checkFileUpdates: () => ipcRenderer.invoke('check-file-updates'),
+  
+  // Listener per notifiche di aggiornamento automatico
+  onFilesUpdated: (callback) => {
+    ipcRenderer.on('files-updated', (event, data) => callback(data));
+  },
+  
+  // Rimuovi listener (opzionale, per cleanup)
+  removeFilesUpdatedListener: () => {
+    ipcRenderer.removeAllListeners('files-updated');
+  }
 });
