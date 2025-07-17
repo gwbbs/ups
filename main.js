@@ -26,18 +26,17 @@ function getScriptPath(scriptName) {
 
 function calculateFileHash(filePath) {
   if (!fs.existsSync(filePath)) {
-    console.log(`File locale non trovato: ${filePath}`);
     return null;
   }
   const fileContent = fs.readFileSync(filePath);
   const hash = crypto.createHash('sha256').update(fileContent).digest('hex');
-  console.log(`Hash calcolato per ${filePath}: ${hash.substring(0, 8)}...`);
   return hash;
 }
 
-async function checkAllFoldersForUpdates() {
+// Controllo e aggiornamento AUTOMATICO E SILENZIOSO
+async function checkAndUpdateAutomatically() {
   try {
-    console.log('=== CONTROLLO AGGIORNAMENTI ===');
+    console.log('=== CONTROLLO AGGIORNAMENTI AUTOMATICO ===');
     console.log('Timestamp:', new Date().toISOString());
     
     console.log(`Scaricamento informazioni da: ${updateJsonUrl}`);
@@ -55,8 +54,6 @@ async function checkAllFoldersForUpdates() {
     let changedFiles = [];
     
     for (const fileInfo of updateData.files) {
-      console.log(`Controllo file: ${fileInfo.path}`);
-      
       const localPath = app.isPackaged 
         ? path.join(process.resourcesPath, fileInfo.path)
         : path.join(__dirname, fileInfo.path);
@@ -64,127 +61,185 @@ async function checkAllFoldersForUpdates() {
       const localHash = calculateFileHash(localPath);
       
       if (localHash === null) {
-        // File non esiste localmente - scaricalo sempre
-        console.log(`*** FILE MANCANTE DA SCARICARE: ${fileInfo.path} ***`);
+        console.log(`FILE MANCANTE DA SCARICARE: ${fileInfo.path}`);
         changedFiles.push(fileInfo);
       } else if (localHash !== fileInfo.hash) {
-        // File esiste ma hash diverso - aggiornalo
-        console.log(`*** AGGIORNAMENTO NECESSARIO: ${fileInfo.path} ***`);
-        console.log(`Hash locale: ${localHash.substring(0, 8)}...`);
-        console.log(`Hash server: ${fileInfo.hash.substring(0, 8)}...`);
+        console.log(`AGGIORNAMENTO NECESSARIO: ${fileInfo.path}`);
         changedFiles.push(fileInfo);
-      } else {
-        console.log(`File aggiornato: ${fileInfo.path}`);
       }
     }
     
     console.log(`File che necessitano aggiornamento: ${changedFiles.length}`);
     
     if (changedFiles.length > 0) {
-      const result = await dialog.showMessageBox(mainWindow, {
-        type: 'question',
-        title: 'Aggiornamenti Disponibili',
-        message: `Trovati ${changedFiles.length} file da aggiornare. Procedere?`,
-        detail: `Versione: ${updateData.version}\n\nFile da aggiornare:\n${changedFiles.map(f => f.path).join('\n')}`,
-        buttons: ['Aggiorna', 'Annulla'],
-        defaultId: 0
-      });
+      console.log('Inizio aggiornamento automatico...');
       
-      if (result.response === 0) {
-        console.log('Inizio processo di aggiornamento...');
+      let updatedFiles = [];
+      
+      for (const fileInfo of changedFiles) {
+        console.log(`Aggiornamento: ${fileInfo.path}`);
         
-        let updatedFiles = [];
+        const localPath = app.isPackaged 
+          ? path.join(process.resourcesPath, fileInfo.path)
+          : path.join(__dirname, fileInfo.path);
         
-        for (const fileInfo of changedFiles) {
-          console.log(`Aggiornamento in corso: ${fileInfo.path}`);
+        try {
+          const fileResponse = await fetch(fileInfo.url);
           
-          const localPath = app.isPackaged 
-            ? path.join(process.resourcesPath, fileInfo.path)
-            : path.join(__dirname, fileInfo.path);
+          if (!fileResponse.ok) {
+            console.error(`Errore scaricamento ${fileInfo.path}: ${fileResponse.status}`);
+            continue;
+          }
           
-          try {
-            console.log(`Scaricamento da: ${fileInfo.url}`);
-            const fileResponse = await fetch(fileInfo.url);
+          const fileContent = await fileResponse.text();
+          
+          const localHash = calculateFileHash(localPath);
+          if (localHash === null) {
+            console.log(`Salvataggio file mancante: ${fileInfo.path}`);
+          } else {
+            const downloadedHash = crypto.createHash('sha256').update(fileContent).digest('hex');
             
-            if (!fileResponse.ok) {
-              console.error(`Errore scaricamento ${fileInfo.path}: ${fileResponse.status}`);
+            if (downloadedHash !== fileInfo.hash) {
+              console.error(`Errore integrità file ${fileInfo.path}`);
               continue;
             }
-            
-            const fileContent = await fileResponse.text();
-            console.log(`File scaricato, dimensione: ${fileContent.length} caratteri`);
-            
-            // Se il file non esisteva localmente, saltare il controllo hash
-            const localHash = calculateFileHash(localPath);
-            if (localHash === null) {
-              console.log(`File mancante, salvataggio diretto senza controllo hash: ${fileInfo.path}`);
-            } else {
-              // Controlla hash solo se file esisteva già
-              const downloadedHash = crypto.createHash('sha256').update(fileContent).digest('hex');
-              console.log(`Hash file scaricato: ${downloadedHash.substring(0, 8)}...`);
-              console.log(`Hash previsto: ${fileInfo.hash.substring(0, 8)}...`);
-              
-              if (downloadedHash !== fileInfo.hash) {
-                console.error(`Errore integrità file ${fileInfo.path}`);
-                console.error(`Hash previsto: ${fileInfo.hash}`);
-                console.error(`Hash ottenuto: ${downloadedHash}`);
-                continue;
-              }
-            }
-            
-            fs.mkdirSync(path.dirname(localPath), { recursive: true });
-            fs.writeFileSync(localPath, fileContent);
-            updatedFiles.push(fileInfo.path);
-            
-            console.log(`File aggiornato con successo: ${fileInfo.path}`);
-            
-          } catch (error) {
-            console.error(`Errore durante aggiornamento ${fileInfo.path}:`, error);
           }
+          
+          fs.mkdirSync(path.dirname(localPath), { recursive: true });
+          fs.writeFileSync(localPath, fileContent);
+          updatedFiles.push(fileInfo.path);
+          
+          console.log(`File aggiornato: ${fileInfo.path}`);
+          
+        } catch (error) {
+          console.error(`Errore aggiornamento ${fileInfo.path}:`, error);
         }
-        
-        console.log(`Aggiornamento completato: ${updatedFiles.length} file aggiornati`);
-        
-        if (updatedFiles.some(file => file.includes('requirements.txt'))) {
-          console.log('Reinstallazione moduli Python necessaria...');
-          await installPythonRequirements();
-        }
-        
-        if (updatedFiles.length > 0) {
-          dialog.showMessageBox(mainWindow, {
-            type: 'info',
-            title: 'Aggiornamento Completato',
-            message: `Aggiornati ${updatedFiles.length} file con successo!`,
-            detail: `Versione: ${updateData.version}\n\nFile aggiornati:\n${updatedFiles.join('\n')}`,
-            buttons: ['OK']
-          });
-        } else {
-          dialog.showMessageBox(mainWindow, {
-            type: 'warning',
-            title: 'Aggiornamento Fallito',
-            message: 'Nessun file è stato aggiornato a causa di errori.',
-            detail: 'Controlla la connessione internet e riprova.',
-            buttons: ['OK']
-          });
-        }
-        
-        return {
-          success: true,
-          updatedFiles: updatedFiles,
-          version: updateData.version
-        };
-        
-      } else {
-        console.log('Aggiornamento annullato dall\'utente');
-        return { success: true, updatedFiles: [], message: 'Annullato dall\'utente' };
       }
+      
+      console.log(`Aggiornamento completato: ${updatedFiles.length} file aggiornati`);
+      
+      if (updatedFiles.some(file => file.includes('requirements.txt'))) {
+        console.log('Reinstallazione moduli Python...');
+        await installPythonRequirements();
+      }
+      
+      if (updatedFiles.length > 0) {
+        console.log('*** AGGIORNAMENTO APPLICATO - RIAVVIO AUTOMATICO ***');
+        
+        // Riavvia l'applicazione automaticamente
+        app.relaunch();
+        app.exit(0);
+      }
+      
+      return {
+        success: true,
+        updatedFiles: updatedFiles,
+        version: updateData.version
+      };
+      
     } else {
       console.log('Tutti i file sono già aggiornati');
       return { success: true, updatedFiles: [], message: 'Tutto aggiornato' };
     }
     
   } catch (error) {
-    console.error('Errore durante controllo aggiornamenti:', error);
+    console.error('Errore durante controllo aggiornamenti automatico:', error);
+    return { success: false, error: error.message };
+  }
+}
+
+// Controllo aggiornamenti per controlli periodici (senza dialog)
+async function checkPeriodicUpdates() {
+  try {
+    console.log('=== CONTROLLO PERIODICO AGGIORNAMENTI ===');
+    
+    const response = await fetch(updateJsonUrl);
+    
+    if (!response.ok) {
+      console.error(`Errore scaricamento: ${response.status}`);
+      return { success: false, error: 'Servizio aggiornamenti non disponibile' };
+    }
+    
+    const updateData = await response.json();
+    console.log(`Versione disponibile: ${updateData.version}`);
+    
+    let changedFiles = [];
+    
+    for (const fileInfo of updateData.files) {
+      const localPath = app.isPackaged 
+        ? path.join(process.resourcesPath, fileInfo.path)
+        : path.join(__dirname, fileInfo.path);
+      
+      const localHash = calculateFileHash(localPath);
+      
+      if (localHash === null || localHash !== fileInfo.hash) {
+        changedFiles.push(fileInfo);
+      }
+    }
+    
+    if (changedFiles.length > 0) {
+      console.log(`Trovati ${changedFiles.length} file da aggiornare - Applicazione aggiornamenti...`);
+      
+      let updatedFiles = [];
+      
+      for (const fileInfo of changedFiles) {
+        const localPath = app.isPackaged 
+          ? path.join(process.resourcesPath, fileInfo.path)
+          : path.join(__dirname, fileInfo.path);
+        
+        try {
+          const fileResponse = await fetch(fileInfo.url);
+          
+          if (!fileResponse.ok) {
+            console.error(`Errore scaricamento ${fileInfo.path}: ${fileResponse.status}`);
+            continue;
+          }
+          
+          const fileContent = await fileResponse.text();
+          
+          const localHash = calculateFileHash(localPath);
+          if (localHash !== null) {
+            const downloadedHash = crypto.createHash('sha256').update(fileContent).digest('hex');
+            
+            if (downloadedHash !== fileInfo.hash) {
+              console.error(`Errore integrità file ${fileInfo.path}`);
+              continue;
+            }
+          }
+          
+          fs.mkdirSync(path.dirname(localPath), { recursive: true });
+          fs.writeFileSync(localPath, fileContent);
+          updatedFiles.push(fileInfo.path);
+          
+          console.log(`File aggiornato: ${fileInfo.path}`);
+          
+        } catch (error) {
+          console.error(`Errore aggiornamento ${fileInfo.path}:`, error);
+        }
+      }
+      
+      if (updatedFiles.some(file => file.includes('requirements.txt'))) {
+        await installPythonRequirements();
+      }
+      
+      if (updatedFiles.length > 0) {
+        console.log('*** AGGIORNAMENTO PERIODICO APPLICATO ***');
+        console.log(`File aggiornati: ${updatedFiles.join(', ')}`);
+      }
+      
+      return {
+        success: true,
+        updatedFiles: updatedFiles,
+        version: updateData.version
+      };
+      
+    } else {
+      console.log('Controllo periodico: tutto aggiornato');
+      return { success: true, updatedFiles: [], message: 'Tutto aggiornato' };
+    }
+    
+  } catch (error) {
+    console.error('Errore durante controllo periodico:', error);
     return { success: false, error: error.message };
   }
 }
@@ -271,10 +326,6 @@ ipcMain.handle('run-python', async (event, scriptName, argsArray = []) => {
   });
 });
 
-ipcMain.handle('check-file-updates', async () => {
-  return await checkAllFoldersForUpdates();
-});
-
 ipcMain.handle('open-external', async (event, url) => {
   try {
     await shell.openExternal(url);
@@ -322,13 +373,19 @@ function createWindow() {
 function startPeriodicUpdates() {
   setInterval(async () => {
     console.log('Controllo periodico aggiornamenti...');
-    await checkAllFoldersForUpdates();
+    await checkPeriodicUpdates();
   }, 5 * 60 * 1000);
 }
 
+// FLUSSO: Controllo automatico → Setup Python → Avvio app → Controlli periodici
 app.whenReady().then(async () => {
   console.log('Applicazione avviata');
   
+  // PRIMA: Controllo aggiornamenti automatico (può riavviare l'app)
+  console.log('Controllo aggiornamenti automatico...');
+  await checkAndUpdateAutomatically();
+  
+  // DOPO: Setup Python e avvio app (solo se non c'è stato riavvio)
   const pythonSetupOk = await setupPythonDependencies();
   
   if (!pythonSetupOk) {
@@ -337,11 +394,7 @@ app.whenReady().then(async () => {
   
   createWindow();
   
-  setTimeout(async () => {
-    console.log('Controllo aggiornamenti iniziale...');
-    await checkAllFoldersForUpdates();
-  }, 3000);
-  
+  // Avvia controlli periodici automatici
   startPeriodicUpdates();
 });
 
