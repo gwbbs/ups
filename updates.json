@@ -1,6 +1,6 @@
 {
-  "version": "1.0.4",
-  "timestamp": "2025-07-17T00:36:31.266Z",
+  "version": "1.0.5",
+  "timestamp": "2025-07-17T00:42:00.637Z",
   "files": [
     {
       "path": "main.js",
@@ -16,13 +16,13 @@
     },
     {
       "path": "styles.css",
-      "hash": "add06e3282aa5dac4b506efd9c3e4de21dbb55352000652779bb1e60385bcc1b",
-      "size": 13445,
+      "hash": "0e368144413f85e57017976854e369b5fd75381cbe8971290d839af598483353",
+      "size": 13439,
       "url": "https://raw.githubusercontent.com/gwbbs/ups/main/styles.css"
     },
     {
       "path": "package.json",
-      "hash": "80334ec23f2cfd64866b3736c2d747d25c4a625bca663fe30a6de60f092c25cc",
+      "hash": "cd23a3728bee33f0b4ac134d70c04ad296f7a3bb184138b6d0e3a1a7f55d3500",
       "size": 1318,
       "url": "https://raw.githubusercontent.com/gwbbs/ups/main/package.json"
     },

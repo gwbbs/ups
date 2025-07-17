@@ -3,6 +3,7 @@ dist/
 update-json.js
 update-json.bat
 updates.json
+start.bat
 
 # Dependencies
 node_modules/
