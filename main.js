@@ -56,17 +56,34 @@ function debugPaths() {
   }
 }
 
-// Controllo e aggiornamento AUTOMATICO E SILENZIOSO
-async function checkAndUpdateAutomatically() {
+// Controllo aggiornamenti con dialog
+async function checkForUpdates() {
   try {
-    console.log('=== CONTROLLO AGGIORNAMENTI AUTOMATICO ===');
+    console.log('=== CONTROLLO AGGIORNAMENTI ===');
     console.log('Timestamp:', new Date().toISOString());
+    
+    // Mostra dialog di controllo aggiornamenti
+    const checkingDialog = dialog.showMessageBox(null, {
+      type: 'info',
+      title: 'Controllo Aggiornamenti',
+      message: 'Controllo aggiornamenti in corso...',
+      buttons: ['Attendere...'],
+      defaultId: 0
+    });
     
     console.log(`Scaricamento informazioni da: ${updateJsonUrl}`);
     const response = await fetch(updateJsonUrl);
     
     if (!response.ok) {
       console.error(`Errore scaricamento: ${response.status}`);
+      
+      dialog.showMessageBox(null, {
+        type: 'error',
+        title: 'Errore Aggiornamenti',
+        message: 'Servizio aggiornamenti non disponibile',
+        buttons: ['OK']
+      });
+      
       return { success: false, error: 'Servizio aggiornamenti non disponibile' };
     }
     
@@ -95,107 +112,170 @@ async function checkAndUpdateAutomatically() {
     console.log(`File che necessitano aggiornamento: ${changedFiles.length}`);
     
     if (changedFiles.length > 0) {
-      console.log('Inizio aggiornamento automatico...');
+      // Mostra dialog con lista aggiornamenti
+      const fileList = changedFiles.map(file => `• ${file.path}`).join('\n');
+      const message = `Nuova versione disponibile: ${updateData.version}\n\nFile da aggiornare:\n${fileList}`;
       
-      let updatedFiles = [];
+      const result = await dialog.showMessageBox(null, {
+        type: 'question',
+        title: 'Aggiornamento Disponibile',
+        message: message,
+        buttons: ['Aggiorna Ora', 'Salta', 'Annulla'],
+        defaultId: 0,
+        cancelId: 2
+      });
       
-      for (const fileInfo of changedFiles) {
-        console.log(`Aggiornamento: ${fileInfo.path}`);
-        
-        const localPath = app.isPackaged 
-          ? path.join(process.resourcesPath, fileInfo.path)
-          : path.join(__dirname, fileInfo.path);
-        
-        try {
-          const fileResponse = await fetch(fileInfo.url);
-          
-          if (!fileResponse.ok) {
-            console.error(`Errore scaricamento ${fileInfo.path}: ${fileResponse.status}`);
-            continue;
-          }
-          
-          const fileContent = await fileResponse.text();
-          
-          const localHash = calculateFileHash(localPath);
-          if (localHash === null) {
-            console.log(`Salvataggio file mancante: ${fileInfo.path}`);
-          } else {
-            const downloadedHash = crypto.createHash('sha256').update(fileContent).digest('hex');
-            
-            if (downloadedHash !== fileInfo.hash) {
-              console.error(`Errore integrità file ${fileInfo.path}`);
-              continue;
-            }
-          }
-          
-          fs.mkdirSync(path.dirname(localPath), { recursive: true });
-          fs.writeFileSync(localPath, fileContent);
-          updatedFiles.push(fileInfo.path);
-          
-          console.log(`File aggiornato: ${fileInfo.path}`);
-          
-        } catch (error) {
-          console.error(`Errore aggiornamento ${fileInfo.path}:`, error);
-        }
+      if (result.response === 0) {
+        // Utente ha scelto di aggiornare
+        return await performUpdate(changedFiles, updateData.version);
+      } else if (result.response === 1) {
+        // Utente ha scelto di saltare
+        console.log('Aggiornamento saltato dall\'utente');
+        return { success: true, skipped: true };
+      } else {
+        // Utente ha annullato
+        console.log('Aggiornamento annullato dall\'utente');
+        return { success: false, cancelled: true };
       }
-      
-      console.log(`Aggiornamento completato: ${updatedFiles.length} file aggiornati`);
-      
-      if (updatedFiles.some(file => file.includes('requirements.txt'))) {
-        console.log('Reinstallazione moduli Python...');
-        await installPythonRequirements();
-      }
-      
-      if (updatedFiles.length > 0) {
-        // Gestisci aggiornamenti UI (index.html, CSS, JS)
-        const uiFiles = ['index.html', 'styles.css', 'scripts/'];
-        const hasUIUpdate = updatedFiles.some(file => 
-          uiFiles.some(uiFile => file.includes(uiFile))
-        );
-        
-        if (hasUIUpdate) {
-          console.log('*** AGGIORNAMENTO UI RILEVATO - RICARICAMENTO FINESTRA ***');
-          
-          if (mainWindow) {
-            // Pulisci la cache di Electron
-            await mainWindow.webContents.session.clearCache();
-            
-            // Aspetta un momento e ricarica la finestra
-            setTimeout(() => {
-              const indexPath = app.isPackaged
-                ? path.join(process.resourcesPath, 'index.html')
-                : path.join(__dirname, 'index.html');
-              
-              console.log('Ricaricando UI da:', indexPath);
-              mainWindow.loadFile(indexPath);
-            }, 1000);
-          }
-        } else {
-          console.log('*** AGGIORNAMENTO APPLICATO - RIAVVIO AUTOMATICO ***');
-          // Riavvia l'applicazione automaticamente solo per file non-UI
-          app.relaunch();
-          app.exit(0);
-        }
-      }
-      
-      return {
-        success: true,
-        updatedFiles: updatedFiles,
-        version: updateData.version
-      };
       
     } else {
+      dialog.showMessageBox(null, {
+        type: 'info',
+        title: 'Aggiornamenti',
+        message: 'Tutti i file sono già aggiornati!',
+        buttons: ['OK']
+      });
+      
       console.log('Tutti i file sono già aggiornati');
       return { success: true, updatedFiles: [], message: 'Tutto aggiornato' };
     }
     
   } catch (error) {
-    console.error('Errore durante controllo aggiornamenti automatico:', error);
+    console.error('Errore durante controllo aggiornamenti:', error);
+    
+    dialog.showMessageBox(null, {
+      type: 'error',
+      title: 'Errore',
+      message: `Errore durante il controllo aggiornamenti: ${error.message}`,
+      buttons: ['OK']
+    });
+    
     return { success: false, error: error.message };
   }
 }
 
-// Controllo aggiornamenti per controlli periodici (senza dialog)
+// Esegui l'aggiornamento
+async function performUpdate(changedFiles, version) {
+  try {
+    // Mostra dialog di progresso
+    console.log('Inizio aggiornamento...');
+    
+    let updatedFiles = [];
+    let totalFiles = changedFiles.length;
+    let currentFile = 0;
+    
+    for (const fileInfo of changedFiles) {
+      currentFile++;
+      console.log(`Aggiornamento (${currentFile}/${totalFiles}): ${fileInfo.path}`);
+      
+      const localPath = app.isPackaged 
+        ? path.join(process.resourcesPath, fileInfo.path)
+        : path.join(__dirname, fileInfo.path);
+      
+      try {
+        const fileResponse = await fetch(fileInfo.url);
+        
+        if (!fileResponse.ok) {
+          console.error(`Errore scaricamento ${fileInfo.path}: ${fileResponse.status}`);
+          continue;
+        }
+        
+        const fileContent = await fileResponse.text();
+        
+        const localHash = calculateFileHash(localPath);
+        if (localHash === null) {
+          console.log(`Salvataggio file mancante: ${fileInfo.path}`);
+        } else {
+          const downloadedHash = crypto.createHash('sha256').update(fileContent).digest('hex');
+          
+          if (downloadedHash !== fileInfo.hash) {
+            console.error(`Errore integrità file ${fileInfo.path}`);
+            continue;
+          }
+        }
+        
+        fs.mkdirSync(path.dirname(localPath), { recursive: true });
+        fs.writeFileSync(localPath, fileContent);
+        updatedFiles.push(fileInfo.path);
+        
+        console.log(`File aggiornato: ${fileInfo.path}`);
+        
+      } catch (error) {
+        console.error(`Errore aggiornamento ${fileInfo.path}:`, error);
+      }
+    }
+    
+    console.log(`Aggiornamento completato: ${updatedFiles.length} file aggiornati`);
+    
+    if (updatedFiles.some(file => file.includes('requirements.txt'))) {
+      console.log('Reinstallazione moduli Python...');
+      await installPythonRequirements();
+    }
+    
+    if (updatedFiles.length > 0) {
+      // Gestisci aggiornamenti UI
+      const uiFiles = ['index.html', 'styles.css', 'scripts/'];
+      const hasUIUpdate = updatedFiles.some(file => 
+        uiFiles.some(uiFile => file.includes(uiFile))
+      );
+      
+      if (hasUIUpdate) {
+        dialog.showMessageBox(null, {
+          type: 'info',
+          title: 'Aggiornamento Completato',
+          message: `Aggiornamento alla versione ${version} completato!\n\nL'interfaccia verrà ricaricata.`,
+          buttons: ['OK']
+        });
+        
+        console.log('*** AGGIORNAMENTO UI COMPLETATO ***');
+      } else {
+        const result = await dialog.showMessageBox(null, {
+          type: 'info',
+          title: 'Aggiornamento Completato',
+          message: `Aggiornamento alla versione ${version} completato!\n\nÈ necessario riavviare l'applicazione.`,
+          buttons: ['Riavvia Ora', 'Riavvia Dopo'],
+          defaultId: 0
+        });
+        
+        if (result.response === 0) {
+          console.log('*** RIAVVIO APPLICAZIONE ***');
+          app.relaunch();
+          app.exit(0);
+        }
+      }
+    }
+    
+    return {
+      success: true,
+      updatedFiles: updatedFiles,
+      version: version
+    };
+    
+  } catch (error) {
+    console.error('Errore durante aggiornamento:', error);
+    
+    dialog.showMessageBox(null, {
+      type: 'error',
+      title: 'Errore Aggiornamento',
+      message: `Errore durante l'aggiornamento: ${error.message}`,
+      buttons: ['OK']
+    });
+    
+    return { success: false, error: error.message };
+  }
+}
+
+// Controllo aggiornamenti periodico (silenzioso)
 async function checkPeriodicUpdates() {
   try {
     console.log('=== CONTROLLO PERIODICO AGGIORNAMENTI ===');
@@ -225,87 +305,30 @@ async function checkPeriodicUpdates() {
     }
     
     if (changedFiles.length > 0) {
-      console.log(`Trovati ${changedFiles.length} file da aggiornare - Applicazione aggiornamenti...`);
+      console.log(`Controllo periodico: trovati ${changedFiles.length} file da aggiornare`);
       
-      let updatedFiles = [];
-      
-      for (const fileInfo of changedFiles) {
-        const localPath = app.isPackaged 
-          ? path.join(process.resourcesPath, fileInfo.path)
-          : path.join(__dirname, fileInfo.path);
+      // Mostra notifica discreta
+      if (mainWindow) {
+        const fileList = changedFiles.map(file => `• ${file.path}`).join('\n');
+        const message = `Nuova versione disponibile: ${updateData.version}\n\nFile da aggiornare:\n${fileList}`;
         
-        try {
-          const fileResponse = await fetch(fileInfo.url);
-          
-          if (!fileResponse.ok) {
-            console.error(`Errore scaricamento ${fileInfo.path}: ${fileResponse.status}`);
-            continue;
-          }
-          
-          const fileContent = await fileResponse.text();
-          
-          const localHash = calculateFileHash(localPath);
-          if (localHash !== null) {
-            const downloadedHash = crypto.createHash('sha256').update(fileContent).digest('hex');
-            
-            if (downloadedHash !== fileInfo.hash) {
-              console.error(`Errore integrità file ${fileInfo.path}`);
-              continue;
-            }
-          }
-          
-          fs.mkdirSync(path.dirname(localPath), { recursive: true });
-          fs.writeFileSync(localPath, fileContent);
-          updatedFiles.push(fileInfo.path);
-          
-          console.log(`File aggiornato: ${fileInfo.path}`);
-          
-        } catch (error) {
-          console.error(`Errore aggiornamento ${fileInfo.path}:`, error);
+        const result = await dialog.showMessageBox(mainWindow, {
+          type: 'question',
+          title: 'Aggiornamento Disponibile',
+          message: message,
+          buttons: ['Aggiorna Ora', 'Ricorda Dopo'],
+          defaultId: 1
+        });
+        
+        if (result.response === 0) {
+          return await performUpdate(changedFiles, updateData.version);
         }
       }
-      
-      if (updatedFiles.some(file => file.includes('requirements.txt'))) {
-        await installPythonRequirements();
-      }
-      
-      if (updatedFiles.length > 0) {
-        // Gestisci aggiornamenti UI anche nei controlli periodici
-        const uiFiles = ['index.html', 'styles.css', 'scripts/'];
-        const hasUIUpdate = updatedFiles.some(file => 
-          uiFiles.some(uiFile => file.includes(uiFile))
-        );
-        
-        if (hasUIUpdate) {
-          console.log('*** AGGIORNAMENTO UI PERIODICO RILEVATO ***');
-          
-          if (mainWindow) {
-            await mainWindow.webContents.session.clearCache();
-            setTimeout(() => {
-              const indexPath = app.isPackaged
-                ? path.join(process.resourcesPath, 'index.html')
-                : path.join(__dirname, 'index.html');
-              
-              console.log('Ricaricando UI da:', indexPath);
-              mainWindow.loadFile(indexPath);
-            }, 1000);
-          }
-        } else {
-          console.log('*** AGGIORNAMENTO PERIODICO APPLICATO ***');
-          console.log(`File aggiornati: ${updatedFiles.join(', ')}`);
-        }
-      }
-      
-      return {
-        success: true,
-        updatedFiles: updatedFiles,
-        version: updateData.version
-      };
-      
     } else {
       console.log('Controllo periodico: tutto aggiornato');
-      return { success: true, updatedFiles: [], message: 'Tutto aggiornato' };
     }
+    
+    return { success: true, updatedFiles: [], message: 'Tutto aggiornato' };
     
   } catch (error) {
     console.error('Errore durante controllo periodico:', error);
@@ -444,20 +467,52 @@ function createWindow() {
   if (!app.isPackaged) {
     mainWindow.webContents.openDevTools();
   }
+  
+  // Ricarica UI se necessario dopo aggiornamento
+  if (global.uiUpdatePending) {
+    setTimeout(() => {
+      mainWindow.webContents.session.clearCache();
+      mainWindow.loadFile(indexPath);
+      global.uiUpdatePending = false;
+    }, 2000);
+  }
 }
 
 function startPeriodicUpdates() {
   setInterval(async () => {
     console.log('Controllo periodico aggiornamenti...');
     await checkPeriodicUpdates();
-  }, 5 * 60 * 1000);
+  }, 10 * 60 * 1000); // Ogni 10 minuti
 }
 
 app.whenReady().then(async () => {
   console.log('Applicazione avviata');
   debugPaths();
-  console.log('Controllo aggiornamenti automatico...');
-  await checkAndUpdateAutomatically();
+  
+  // PRIMA: Controllo aggiornamenti con dialog
+  console.log('Controllo aggiornamenti...');
+  const updateResult = await checkForUpdates();
+  
+  // Se l'aggiornamento è stato annullato, chiudi l'app
+  if (updateResult.cancelled) {
+    console.log('Applicazione chiusa per annullamento aggiornamento');
+    app.quit();
+    return;
+  }
+  
+  // Se c'è stato un aggiornamento UI, segnalalo
+  if (updateResult.success && updateResult.updatedFiles) {
+    const uiFiles = ['index.html', 'styles.css', 'scripts/'];
+    const hasUIUpdate = updateResult.updatedFiles.some(file => 
+      uiFiles.some(uiFile => file.includes(uiFile))
+    );
+    
+    if (hasUIUpdate) {
+      global.uiUpdatePending = true;
+    }
+  }
+  
+  // DOPO: Setup Python e avvio app
   const pythonSetupOk = await setupPythonDependencies();
   
   if (!pythonSetupOk) {
