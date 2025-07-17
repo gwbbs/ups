@@ -58,6 +58,7 @@
     "electron-builder": "^26.0.12"
   },
   "dependencies": {
-    "electron-updater": "^6.6.2"
+    "electron-updater": "^6.6.2",
+    "node-fetch": "^3.3.2"
   }
 }

@@ -1,5 +1,8 @@
 # Build output
 dist/
+update-json.js
+update-json.bat
+update.json
 
 # Dependencies
 node_modules/

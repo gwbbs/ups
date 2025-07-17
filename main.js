@@ -10,7 +10,7 @@ autoUpdater.autoInstallOnAppQuit = true;
 
 let mainWindow;
 
-// === FUNZIONI PER PERCORSI PYTHON ===
+const updateJsonUrl = 'https://api.jsonsilo.com/public/2196f25f-d69e-4739-ac9d-41162b634b97';
 
 function getEmbedPyPath() {
   return app.isPackaged
@@ -24,283 +24,161 @@ function getScriptPath(scriptName) {
     : path.join(__dirname, 'sources', scriptName);
 }
 
-// === FUNZIONI PER LETTURA RICORSIVA ===
-
-// Funzione per ottenere tutti i file ricorsivamente da una cartella locale
-function getFilesRecursively(directory) {
-  let files = [];
-  
-  try {
-    const items = fs.readdirSync(directory);
-    
-    for (const item of items) {
-      const fullPath = path.join(directory, item);
-      if (fs.statSync(fullPath).isDirectory()) {
-        files = files.concat(getFilesRecursively(fullPath));
-      } else {
-        files.push(fullPath);
-      }
-    }
-  } catch (error) {
-    console.error(`Errore lettura cartella ${directory}:`, error);
-  }
-  
-  return files;
-}
-
-// Funzione per ottenere tutti i file ricorsivamente da GitHub
-async function getFilesFromGitHubRecursively(repo, branch, directory = '') {
-  const apiUrl = `https://api.github.com/repos/${repo}/contents/${directory}?ref=${branch}`;
-  
-  try {
-    const response = await fetch(apiUrl);
-    const items = await response.json();
-    
-    if (!Array.isArray(items)) {
-      console.error('Errore nel recupero file da GitHub:', items.message);
-      return [];
-    }
-    
-    let allFiles = [];
-    
-    for (const item of items) {
-      if (item.type === 'file') {
-        allFiles.push(item.path);
-      } else if (item.type === 'dir') {
-        const subFiles = await getFilesFromGitHubRecursively(repo, branch, item.path);
-        allFiles = allFiles.concat(subFiles);
-      }
-    }
-    
-    return allFiles;
-  } catch (error) {
-    console.error(`Errore nel recupero file da ${directory}:`, error);
-    return [];
-  }
-}
-
-// === SISTEMA CONTROLLO COMPLETO ===
-
 function calculateFileHash(filePath) {
-  if (!fs.existsSync(filePath)) return null;
+  if (!fs.existsSync(filePath)) {
+    console.log(`File locale non trovato: ${filePath}`);
+    return null;
+  }
   const fileContent = fs.readFileSync(filePath);
-  return crypto.createHash('sha256').update(fileContent).digest('hex');
+  const hash = crypto.createHash('sha256').update(fileContent).digest('hex');
+  console.log(`Hash calcolato per ${filePath}: ${hash.substring(0, 8)}...`);
+  return hash;
 }
 
-// Funzione principale che controlla TUTTE le cartelle
 async function checkAllFoldersForUpdates() {
   try {
-    console.log('Controllo completo di tutte le cartelle...');
+    console.log('=== CONTROLLO AGGIORNAMENTI ===');
+    console.log('Timestamp:', new Date().toISOString());
     
-    const repo = 'gwbbs/ups';
+    console.log(`Scaricamento informazioni da: ${updateJsonUrl}`);
+    const response = await fetch(updateJsonUrl);
     
-    // Ottieni info repository
-    const repoUrl = `https://api.github.com/repos/${repo}`;
-    const repoResponse = await fetch(repoUrl);
-    
-    if (!repoResponse.ok) {
-      return { success: false, error: 'Repository non accessibile' };
+    if (!response.ok) {
+      console.error(`Errore scaricamento: ${response.status}`);
+      return { success: false, error: 'Servizio aggiornamenti non disponibile' };
     }
     
-    const repoInfo = await repoResponse.json();
-    const branch = repoInfo.default_branch;
-    
-    console.log('Branch utilizzata:', branch);
-    
-    // Ottieni tutti i file da tutte le cartelle specificate
-    console.log('Recupero tutti i file dalle cartelle...');
-    
-    const allGitHubFiles = await getFilesFromGitHubRecursively(repo, branch);
-    
-    if (allGitHubFiles.length === 0) {
-      console.log('Nessun file trovato nella repository');
-      return { success: false, error: 'Nessun file trovato' };
-    }
-    
-    console.log(`Trovati ${allGitHubFiles.length} file nella repository`);
-    
-    // Filtra solo i file delle cartelle che ci interessano
-    const targetFolders = ['media/', 'sources/', 'scripts/', 'main.js'];
-    const relevantFiles = allGitHubFiles.filter(file => {
-      return targetFolders.some(folder => {
-        if (folder === 'main.js') {
-          return file === 'main.js';
-        }
-        return file.startsWith(folder);
-      });
-    });
-    
-    // Aggiungi main.js se non è già presente
-    if (!relevantFiles.includes('main.js')) {
-      relevantFiles.push('main.js');
-    }
-    
-    console.log(`File da controllare: ${relevantFiles.length}`);
-    console.log('Cartelle monitorate:', targetFolders);
+    const updateData = await response.json();
+    console.log(`Versione disponibile: ${updateData.version}`);
+    console.log(`File da controllare: ${updateData.files.length}`);
     
     let changedFiles = [];
     
-    // Controlla ogni file
-    for (const file of relevantFiles) {
+    for (const fileInfo of updateData.files) {
+      console.log(`Controllo file: ${fileInfo.path}`);
+      
       const localPath = app.isPackaged 
-        ? path.join(process.resourcesPath, file)
-        : path.join(__dirname, file);
+        ? path.join(process.resourcesPath, fileInfo.path)
+        : path.join(__dirname, fileInfo.path);
       
-      console.log(`Controllo: ${file}`);
+      const localHash = calculateFileHash(localPath);
       
-      try {
-        // Scarica il file da GitHub
-        const fileUrl = `https://api.github.com/repos/${repo}/contents/${file}?ref=${branch}`;
-        const fileResponse = await fetch(fileUrl);
-        
-        if (!fileResponse.ok) {
-          console.log(`File ${file} non trovato su GitHub`);
-          continue;
-        }
-        
-        const fileData = await fileResponse.json();
-        
-        if (fileData.content) {
-          const remoteContent = Buffer.from(fileData.content, 'base64').toString('utf8');
-          const remoteHash = crypto.createHash('sha256').update(remoteContent).digest('hex');
-          
-          // Calcola hash locale
-          const localHash = calculateFileHash(localPath);
-          
-          // Confronta hash
-          if (localHash !== remoteHash) {
-            console.log(`DIFFERENZA RILEVATA: ${file}`);
-            changedFiles.push(file);
-          }
-        }
-        
-      } catch (error) {
-        console.error(`Errore controllo ${file}:`, error.message);
+      if (localHash !== fileInfo.hash) {
+        console.log(`*** AGGIORNAMENTO NECESSARIO: ${fileInfo.path} ***`);
+        console.log(`Hash locale: ${localHash ? localHash.substring(0, 8) + '...' : 'FILE MANCANTE'}`);
+        console.log(`Hash server: ${fileInfo.hash.substring(0, 8)}...`);
+        changedFiles.push(fileInfo);
+      } else {
+        console.log(`File aggiornato: ${fileInfo.path}`);
       }
     }
     
-    console.log(`Controllo completato. File modificati: ${changedFiles.length}`);
+    console.log(`File che necessitano aggiornamento: ${changedFiles.length}`);
     
-    // Se ci sono file modificati, chiedi aggiornamento
     if (changedFiles.length > 0) {
-      console.log('File modificati trovati:', changedFiles);
-      
-      // Raggruppa i file per cartella per una migliore visualizzazione
-      const filesByFolder = {};
-      changedFiles.forEach(file => {
-        const folder = file.includes('/') ? file.split('/')[0] : 'root';
-        if (!filesByFolder[folder]) filesByFolder[folder] = [];
-        filesByFolder[folder].push(file);
-      });
-      
-      const folderSummary = Object.keys(filesByFolder).map(folder => 
-        `${folder}: ${filesByFolder[folder].length} file`
-      ).join('\n');
-      
-      // Mostra dialog di aggiornamento
       const result = await dialog.showMessageBox(mainWindow, {
         type: 'question',
         title: 'Aggiornamenti Disponibili',
-        message: `Trovati ${changedFiles.length} file modificati in ${Object.keys(filesByFolder).length} cartelle. Vuoi aggiornarli?`,
-        detail: `Cartelle coinvolte:\n${folderSummary}\n\nFile modificati:\n${changedFiles.join('\n')}`,
+        message: `Trovati ${changedFiles.length} file da aggiornare. Procedere?`,
+        detail: `Versione: ${updateData.version}\n\nFile da aggiornare:\n${changedFiles.map(f => f.path).join('\n')}`,
         buttons: ['Aggiorna', 'Annulla'],
         defaultId: 0
       });
       
       if (result.response === 0) {
-        // Utente ha scelto di aggiornare
-        console.log('Inizio aggiornamento file...');
+        console.log('Inizio processo di aggiornamento...');
         
         let updatedFiles = [];
         
-        for (const file of changedFiles) {
+        for (const fileInfo of changedFiles) {
+          console.log(`Aggiornamento in corso: ${fileInfo.path}`);
+          
           const localPath = app.isPackaged 
-            ? path.join(process.resourcesPath, file)
-            : path.join(__dirname, file);
+            ? path.join(process.resourcesPath, fileInfo.path)
+            : path.join(__dirname, fileInfo.path);
           
           try {
-            const fileUrl = `https://api.github.com/repos/${repo}/contents/${file}?ref=${branch}`;
-            const fileResponse = await fetch(fileUrl);
-            const fileData = await fileResponse.json();
+            console.log(`Scaricamento da: ${fileInfo.url}`);
+            const fileResponse = await fetch(fileInfo.url);
             
-            if (fileData.content) {
-              const fileContent = Buffer.from(fileData.content, 'base64').toString('utf8');
-              
-              // Crea directory se non esiste
-              fs.mkdirSync(path.dirname(localPath), { recursive: true });
-              
-              // Scrivi il file aggiornato
-              fs.writeFileSync(localPath, fileContent);
-              updatedFiles.push(file);
-              
-              console.log(`Aggiornato: ${file}`);
+            if (!fileResponse.ok) {
+              console.error(`Errore scaricamento ${fileInfo.path}: ${fileResponse.status}`);
+              continue;
             }
             
+            const fileContent = await fileResponse.text();
+            console.log(`File scaricato, dimensione: ${fileContent.length} caratteri`);
+            
+            const downloadedHash = crypto.createHash('sha256').update(fileContent).digest('hex');
+            console.log(`Hash file scaricato: ${downloadedHash.substring(0, 8)}...`);
+            console.log(`Hash previsto: ${fileInfo.hash.substring(0, 8)}...`);
+            
+            if (downloadedHash !== fileInfo.hash) {
+              console.error(`Errore integrità file ${fileInfo.path}`);
+              console.error(`Hash previsto: ${fileInfo.hash}`);
+              console.error(`Hash ottenuto: ${downloadedHash}`);
+              continue;
+            }
+            
+            fs.mkdirSync(path.dirname(localPath), { recursive: true });
+            fs.writeFileSync(localPath, fileContent);
+            updatedFiles.push(fileInfo.path);
+            
+            console.log(`File aggiornato con successo: ${fileInfo.path}`);
+            
           } catch (error) {
-            console.error(`Errore aggiornamento ${file}:`, error.message);
+            console.error(`Errore durante aggiornamento ${fileInfo.path}:`, error);
           }
         }
         
-        // Se requirements.txt è stato aggiornato, reinstalla moduli
+        console.log(`Aggiornamento completato: ${updatedFiles.length} file aggiornati`);
+        
         if (updatedFiles.some(file => file.includes('requirements.txt'))) {
-          console.log('Requirements.txt aggiornato, reinstallo moduli Python...');
+          console.log('Reinstallazione moduli Python necessaria...');
           await installPythonRequirements();
         }
         
-        // Mostra risultato
-        const updatedByFolder = {};
-        updatedFiles.forEach(file => {
-          const folder = file.includes('/') ? file.split('/')[0] : 'root';
-          if (!updatedByFolder[folder]) updatedByFolder[folder] = [];
-          updatedByFolder[folder].push(file);
-        });
-        
-        const updatedSummary = Object.keys(updatedByFolder).map(folder => 
-          `${folder}: ${updatedByFolder[folder].length} file`
-        ).join('\n');
-        
-        dialog.showMessageBox(mainWindow, {
-          type: 'info',
-          title: 'Aggiornamento Completato',
-          message: `Aggiornati ${updatedFiles.length} file con successo!`,
-          detail: `Cartelle aggiornate:\n${updatedSummary}\n\nFile aggiornati:\n${updatedFiles.join('\n')}`,
-          buttons: ['OK']
-        });
+        if (updatedFiles.length > 0) {
+          dialog.showMessageBox(mainWindow, {
+            type: 'info',
+            title: 'Aggiornamento Completato',
+            message: `Aggiornati ${updatedFiles.length} file con successo!`,
+            detail: `Versione: ${updateData.version}\n\nFile aggiornati:\n${updatedFiles.join('\n')}`,
+            buttons: ['OK']
+          });
+        } else {
+          dialog.showMessageBox(mainWindow, {
+            type: 'warning',
+            title: 'Aggiornamento Fallito',
+            message: 'Nessun file è stato aggiornato a causa di errori di integrità.',
+            detail: 'Controlla la connessione internet e riprova.',
+            buttons: ['OK']
+          });
+        }
         
         return {
           success: true,
           updatedFiles: updatedFiles,
-          message: `Aggiornati ${updatedFiles.length} file in ${Object.keys(updatedByFolder).length} cartelle`
+          version: updateData.version
         };
+        
       } else {
-        return {
-          success: true,
-          updatedFiles: [],
-          message: 'Aggiornamento annullato dall\'utente'
-        };
+        console.log('Aggiornamento annullato dall\'utente');
+        return { success: true, updatedFiles: [], message: 'Annullato dall\'utente' };
       }
     } else {
-      console.log('Nessun file modificato');
-      return {
-        success: true,
-        updatedFiles: [],
-        message: 'Tutti i file sono già aggiornati'
-      };
+      console.log('Tutti i file sono già aggiornati');
+      return { success: true, updatedFiles: [], message: 'Tutto aggiornato' };
     }
     
   } catch (error) {
-    console.error('Errore controllo cartelle:', error);
-    return {
-      success: false,
-      error: error.message
-    };
+    console.error('Errore durante controllo aggiornamenti:', error);
+    return { success: false, error: error.message };
   }
 }
 
-// === RESTO DEL CODICE (installPythonRequirements, updateRequirements, etc.) ===
-
 function installPythonRequirements() {
-  return new Promise((resolve, reject) => {
+  return new Promise((resolve) => {
     const pythonExe = getEmbedPyPath();
     const requirementsPath = app.isPackaged
       ? path.join(process.resourcesPath, 'sources', 'requirements.txt')
@@ -312,23 +190,22 @@ function installPythonRequirements() {
       return;
     }
     
-    console.log('Installazione/aggiornamento moduli Python...');
+    console.log('Installazione moduli Python in corso...');
     const cmd = `"${pythonExe}" -m pip install -r "${requirementsPath}"`;
     
     exec(cmd, { maxBuffer: 1024 * 1024 * 10 }, (err, stdout, stderr) => {
       if (err) {
         console.error('Errore installazione requirements:', err);
-        resolve();
       } else {
-        console.log('Moduli Python installati con successo');
-        resolve();
+        console.log('Moduli Python installati correttamente');
       }
+      resolve();
     });
   });
 }
 
 function updateRequirements() {
-  return new Promise((resolve, reject) => {
+  return new Promise((resolve) => {
     const sourcesPath = app.isPackaged
       ? path.join(process.resourcesPath, 'sources')
       : path.join(__dirname, 'sources');
@@ -338,18 +215,17 @@ function updateRequirements() {
     exec(cmd, { maxBuffer: 1024 * 1024 * 10 }, (err, stdout, stderr) => {
       if (err) {
         console.error('Errore aggiornamento requirements:', err);
-        resolve();
       } else {
-        console.log('Requirements.txt aggiornato con successo');
-        resolve();
+        console.log('File requirements.txt aggiornato');
       }
+      resolve();
     });
   });
 }
 
 async function setupPythonDependencies() {
   try {
-    console.log('=== SETUP DIPENDENZE PYTHON ===');
+    console.log('=== CONFIGURAZIONE PYTHON ===');
     
     if (!app.isPackaged) {
       await updateRequirements();
@@ -357,15 +233,13 @@ async function setupPythonDependencies() {
     
     await installPythonRequirements();
     
-    console.log('=== SETUP DIPENDENZE COMPLETATO ===');
+    console.log('=== CONFIGURAZIONE COMPLETATA ===');
     return true;
   } catch (error) {
-    console.error('Errore nel setup dipendenze Python:', error);
+    console.error('Errore configurazione Python:', error);
     return false;
   }
 }
-
-// === HANDLERS IPC ===
 
 ipcMain.handle('run-python', async (event, scriptName, argsArray = []) => {
   const pythonExe = getEmbedPyPath();
@@ -376,7 +250,7 @@ ipcMain.handle('run-python', async (event, scriptName, argsArray = []) => {
   return new Promise((resolve, reject) => {
     exec(cmd, { maxBuffer: 1024 * 1024 * 10 }, (err, stdout, stderr) => {
       if (err) {
-        console.error('Errore Python:', err);
+        console.error('Errore esecuzione Python:', err);
         reject(stderr || err.message);
       } else {
         resolve(stdout);
@@ -385,7 +259,6 @@ ipcMain.handle('run-python', async (event, scriptName, argsArray = []) => {
   });
 });
 
-// Handler per controllo completo
 ipcMain.handle('check-file-updates', async () => {
   return await checkAllFoldersForUpdates();
 });
@@ -434,34 +307,29 @@ function createWindow() {
   }
 }
 
-// Controllo periodico ogni 5 minuti
 function startPeriodicUpdates() {
   setInterval(async () => {
-    console.log('Controllo periodico di tutte le cartelle...');
+    console.log('Controllo periodico aggiornamenti...');
     await checkAllFoldersForUpdates();
-  }, 5 * 60 * 1000); // 5 minuti
+  }, 5 * 60 * 1000);
 }
 
-// === APP LIFECYCLE ===
-
 app.whenReady().then(async () => {
-  console.log('App pronta, inizializzo...');
+  console.log('Applicazione avviata');
   
   const pythonSetupOk = await setupPythonDependencies();
   
   if (!pythonSetupOk) {
-    console.warn('Problema nel setup Python, continuo comunque...');
+    console.warn('Problema durante configurazione Python');
   }
   
   createWindow();
   
-  // Controlla aggiornamenti dopo 3 secondi dall'avvio
   setTimeout(async () => {
-    console.log('Controllo aggiornamenti iniziale di tutte le cartelle...');
+    console.log('Controllo aggiornamenti iniziale...');
     await checkAllFoldersForUpdates();
   }, 3000);
   
-  // Avvia controllo periodico
   startPeriodicUpdates();
 });
 
