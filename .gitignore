@@ -2,7 +2,7 @@
 dist/
 update-json.js
 update-json.bat
-update.json
+updates.json
 
 # Dependencies
 node_modules/
