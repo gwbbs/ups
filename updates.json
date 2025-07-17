@@ -1,11 +1,11 @@
 {
   "version": "1.0.4",
-  "timestamp": "2025-07-17T00:20:26.706Z",
+  "timestamp": "2025-07-17T00:36:31.266Z",
   "files": [
     {
       "path": "main.js",
-      "hash": "212d0e47560022e11dd09f0d145e5d5803b1d7daf4541f25b5e33cc01016fcd6",
-      "size": 10770,
+      "hash": "03146f5dab2bff7de798e044b5fbc6cdf7ee6d51341987bbf63b8b1a32dad143",
+      "size": 11442,
       "url": "https://raw.githubusercontent.com/gwbbs/ups/main/main.js"
     },
     {
@@ -22,8 +22,8 @@
     },
     {
       "path": "package.json",
-      "hash": "a0f551db508d5450f4bdc02563d3eeef89fc529d16771d95ce24b6ff2a477ebe",
-      "size": 1319,
+      "hash": "80334ec23f2cfd64866b3736c2d747d25c4a625bca663fe30a6de60f092c25cc",
+      "size": 1318,
       "url": "https://raw.githubusercontent.com/gwbbs/ups/main/package.json"
     },
     {
