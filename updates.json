@@ -1,6 +1,6 @@
 {
-  "version": "1.0.5",
-  "timestamp": "2025-07-17T00:42:00.637Z",
+  "version": "1.0.6",
+  "timestamp": "2025-07-17T00:42:37.090Z",
   "files": [
     {
       "path": "main.js",
@@ -22,7 +22,7 @@
     },
     {
       "path": "package.json",
-      "hash": "cd23a3728bee33f0b4ac134d70c04ad296f7a3bb184138b6d0e3a1a7f55d3500",
+      "hash": "be477b85fb1b90c36b02fdc6c5d24b370b89fea20a281379a12a58ccc85d477a",
       "size": 1318,
       "url": "https://raw.githubusercontent.com/gwbbs/ups/main/package.json"
     },

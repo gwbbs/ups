@@ -63,9 +63,14 @@ async function checkAllFoldersForUpdates() {
       
       const localHash = calculateFileHash(localPath);
       
-      if (localHash !== fileInfo.hash) {
+      if (localHash === null) {
+        // File non esiste localmente - scaricalo sempre
+        console.log(`*** FILE MANCANTE DA SCARICARE: ${fileInfo.path} ***`);
+        changedFiles.push(fileInfo);
+      } else if (localHash !== fileInfo.hash) {
+        // File esiste ma hash diverso - aggiornalo
         console.log(`*** AGGIORNAMENTO NECESSARIO: ${fileInfo.path} ***`);
-        console.log(`Hash locale: ${localHash ? localHash.substring(0, 8) + '...' : 'FILE MANCANTE'}`);
+        console.log(`Hash locale: ${localHash.substring(0, 8)}...`);
         console.log(`Hash server: ${fileInfo.hash.substring(0, 8)}...`);
         changedFiles.push(fileInfo);
       } else {
@@ -109,15 +114,22 @@ async function checkAllFoldersForUpdates() {
             const fileContent = await fileResponse.text();
             console.log(`File scaricato, dimensione: ${fileContent.length} caratteri`);
             
-            const downloadedHash = crypto.createHash('sha256').update(fileContent).digest('hex');
-            console.log(`Hash file scaricato: ${downloadedHash.substring(0, 8)}...`);
-            console.log(`Hash previsto: ${fileInfo.hash.substring(0, 8)}...`);
-            
-            if (downloadedHash !== fileInfo.hash) {
-              console.error(`Errore integrità file ${fileInfo.path}`);
-              console.error(`Hash previsto: ${fileInfo.hash}`);
-              console.error(`Hash ottenuto: ${downloadedHash}`);
-              continue;
+            // Se il file non esisteva localmente, saltare il controllo hash
+            const localHash = calculateFileHash(localPath);
+            if (localHash === null) {
+              console.log(`File mancante, salvataggio diretto senza controllo hash: ${fileInfo.path}`);
+            } else {
+              // Controlla hash solo se file esisteva già
+              const downloadedHash = crypto.createHash('sha256').update(fileContent).digest('hex');
+              console.log(`Hash file scaricato: ${downloadedHash.substring(0, 8)}...`);
+              console.log(`Hash previsto: ${fileInfo.hash.substring(0, 8)}...`);
+              
+              if (downloadedHash !== fileInfo.hash) {
+                console.error(`Errore integrità file ${fileInfo.path}`);
+                console.error(`Hash previsto: ${fileInfo.hash}`);
+                console.error(`Hash ottenuto: ${downloadedHash}`);
+                continue;
+              }
             }
             
             fs.mkdirSync(path.dirname(localPath), { recursive: true });
@@ -150,7 +162,7 @@ async function checkAllFoldersForUpdates() {
           dialog.showMessageBox(mainWindow, {
             type: 'warning',
             title: 'Aggiornamento Fallito',
-            message: 'Nessun file è stato aggiornato a causa di errori di integrità.',
+            message: 'Nessun file è stato aggiornato a causa di errori.',
             detail: 'Controlla la connessione internet e riprova.',
             buttons: ['OK']
           });
