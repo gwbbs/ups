@@ -1,6 +1,6 @@
 {
   "name": "ultimate-piracy-scraper",
-  "version": "1.0.12",
+  "version": "1.0.13",
   "description": "Ultimate Piracy Scraper",
   "main": "main.js",
   "scripts": {

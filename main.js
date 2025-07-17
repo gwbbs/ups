@@ -33,6 +33,29 @@ function calculateFileHash(filePath) {
   return hash;
 }
 
+// Funzione di debug per verificare i percorsi
+function debugPaths() {
+  console.log('=== DEBUG PERCORSI ===');
+  console.log('app.isPackaged:', app.isPackaged);
+  console.log('__dirname:', __dirname);
+  
+  if (app.isPackaged) {
+    console.log('process.resourcesPath:', process.resourcesPath);
+  }
+  
+  const indexPath = app.isPackaged
+    ? path.join(process.resourcesPath, 'index.html')
+    : path.join(__dirname, 'index.html');
+  
+  console.log('Percorso index.html:', indexPath);
+  console.log('index.html esiste:', fs.existsSync(indexPath));
+  
+  if (fs.existsSync(indexPath)) {
+    const content = fs.readFileSync(indexPath, 'utf8');
+    console.log('Versione attuale:', content.includes('v1.1') ? 'v1.1' : 'v1.0');
+  }
+}
+
 // Controllo e aggiornamento AUTOMATICO E SILENZIOSO
 async function checkAndUpdateAutomatically() {
   try {
@@ -124,11 +147,35 @@ async function checkAndUpdateAutomatically() {
       }
       
       if (updatedFiles.length > 0) {
-        console.log('*** AGGIORNAMENTO APPLICATO - RIAVVIO AUTOMATICO ***');
+        // Gestisci aggiornamenti UI (index.html, CSS, JS)
+        const uiFiles = ['index.html', 'styles.css', 'scripts/'];
+        const hasUIUpdate = updatedFiles.some(file => 
+          uiFiles.some(uiFile => file.includes(uiFile))
+        );
         
-        // Riavvia l'applicazione automaticamente
-        app.relaunch();
-        app.exit(0);
+        if (hasUIUpdate) {
+          console.log('*** AGGIORNAMENTO UI RILEVATO - RICARICAMENTO FINESTRA ***');
+          
+          if (mainWindow) {
+            // Pulisci la cache di Electron
+            await mainWindow.webContents.session.clearCache();
+            
+            // Aspetta un momento e ricarica la finestra
+            setTimeout(() => {
+              const indexPath = app.isPackaged
+                ? path.join(process.resourcesPath, 'index.html')
+                : path.join(__dirname, 'index.html');
+              
+              console.log('Ricaricando UI da:', indexPath);
+              mainWindow.loadFile(indexPath);
+            }, 1000);
+          }
+        } else {
+          console.log('*** AGGIORNAMENTO APPLICATO - RIAVVIO AUTOMATICO ***');
+          // Riavvia l'applicazione automaticamente solo per file non-UI
+          app.relaunch();
+          app.exit(0);
+        }
       }
       
       return {
@@ -223,8 +270,30 @@ async function checkPeriodicUpdates() {
       }
       
       if (updatedFiles.length > 0) {
-        console.log('*** AGGIORNAMENTO PERIODICO APPLICATO ***');
-        console.log(`File aggiornati: ${updatedFiles.join(', ')}`);
+        // Gestisci aggiornamenti UI anche nei controlli periodici
+        const uiFiles = ['index.html', 'styles.css', 'scripts/'];
+        const hasUIUpdate = updatedFiles.some(file => 
+          uiFiles.some(uiFile => file.includes(uiFile))
+        );
+        
+        if (hasUIUpdate) {
+          console.log('*** AGGIORNAMENTO UI PERIODICO RILEVATO ***');
+          
+          if (mainWindow) {
+            await mainWindow.webContents.session.clearCache();
+            setTimeout(() => {
+              const indexPath = app.isPackaged
+                ? path.join(process.resourcesPath, 'index.html')
+                : path.join(__dirname, 'index.html');
+              
+              console.log('Ricaricando UI da:', indexPath);
+              mainWindow.loadFile(indexPath);
+            }, 1000);
+          }
+        } else {
+          console.log('*** AGGIORNAMENTO PERIODICO APPLICATO ***');
+          console.log(`File aggiornati: ${updatedFiles.join(', ')}`);
+        }
       }
       
       return {
@@ -363,7 +432,14 @@ function createWindow() {
   });
   
   mainWindow.setMenu(null);
-  mainWindow.loadFile('index.html');
+  
+  // Carica index.html dal percorso corretto
+  const indexPath = app.isPackaged
+    ? path.join(process.resourcesPath, 'index.html')
+    : path.join(__dirname, 'index.html');
+  
+  console.log('Caricando index.html da:', indexPath);
+  mainWindow.loadFile(indexPath);
   
   if (!app.isPackaged) {
     mainWindow.webContents.openDevTools();
@@ -377,15 +453,11 @@ function startPeriodicUpdates() {
   }, 5 * 60 * 1000);
 }
 
-// FLUSSO: Controllo automatico → Setup Python → Avvio app → Controlli periodici
 app.whenReady().then(async () => {
   console.log('Applicazione avviata');
-  
-  // PRIMA: Controllo aggiornamenti automatico (può riavviare l'app)
+  debugPaths();
   console.log('Controllo aggiornamenti automatico...');
   await checkAndUpdateAutomatically();
-  
-  // DOPO: Setup Python e avvio app (solo se non c'è stato riavvio)
   const pythonSetupOk = await setupPythonDependencies();
   
   if (!pythonSetupOk) {
@@ -393,8 +465,6 @@ app.whenReady().then(async () => {
   }
   
   createWindow();
-  
-  // Avvia controlli periodici automatici
   startPeriodicUpdates();
 });
 
